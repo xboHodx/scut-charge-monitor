@@ -1,0 +1,40 @@
+name: SCUT Charge Monitor
+
+on:
+  # 允许手动从 GitHub Actions 页面触发此工作流
+  workflow_dispatch:
+
+  # 每日定时触发
+  schedule:
+    # UTC 时间 22:00，即北京时间早上 6:00
+    - cron: "0 22 * * *"
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.11-slim
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies with uv
+        run: |
+          pip install uv
+          uv pip install .
+
+      - name: Run monitor script
+        env:
+          SCUT_USERNAME: ${{ secrets.SCUT_USERNAME }}
+          SCUT_PASSWORD: ${{ secrets.SCUT_PASSWORD }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_BASE: ${{ secrets.LLM_API_BASE }}
+          ELECTRICITY_ALERT_THRESHOLD: ${{ secrets.ELECTRICITY_ALERT_THRESHOLD }}
+          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
+          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
+          EMAIL_SMTP_USER: ${{ secrets.EMAIL_SMTP_USER }}
+          EMAIL_SMTP_PASSWORD: ${{ secrets.EMAIL_SMTP_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: python main.py
