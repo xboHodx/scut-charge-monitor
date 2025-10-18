@@ -76,7 +76,10 @@ EMAIL_SMTP_PORT=587
 EMAIL_SMTP_USER="your_email@qq.com"
 # 此处应为邮箱的“客户端授权码”或“应用专用密码”，不是登录密码
 EMAIL_SMTP_PASSWORD="your_email_app_password_or_token"
-# 收件人邮箱地址
+# 收件人邮箱地址（支持多个）
+# 方式一：使用 EMAIL_RECIPIENTS，多个地址用逗号/分号/空格/换行分隔
+# EMAIL_RECIPIENTS="a@example.com, b@example.com; c@example.com d@example.com"
+# 方式二：保留兼容单个的 EMAIL_RECIPIENT
 EMAIL_RECIPIENT="recipient_email@example.com"
 ```
 
