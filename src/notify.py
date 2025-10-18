@@ -1,6 +1,7 @@
 import logging
 import os
 import smtplib
+import re
 from email.mime.text import MIMEText
 from abc import ABC, abstractmethod
 
@@ -20,14 +21,28 @@ class EmailNotifier(NotificationChannel):
         self.smtp_port = int(os.getenv("EMAIL_SMTP_PORT", 587))
         self.smtp_user = os.getenv("EMAIL_SMTP_USER")
         self.smtp_password = os.getenv("EMAIL_SMTP_PASSWORD")
-        self.recipient_email = os.getenv("EMAIL_RECIPIENT")
+        # 支持多收件人：优先 EMAIL_RECIPIENTS，其次 EMAIL_RECIPIENT（单个）
+        recipients_raw = os.getenv("EMAIL_RECIPIENTS") or os.getenv("EMAIL_RECIPIENT")
+        self.recipient_emails = self._parse_recipients(recipients_raw)
 
-        if not all([self.smtp_server, self.smtp_user, self.smtp_password, self.recipient_email]):
+        if not all([self.smtp_server, self.smtp_user, self.smtp_password]) or not self.recipient_emails:
             raise ValueError("邮件通知服务配置不完整，请检查 .env 文件中的 EMAIL_* 变量。")
+
+    @staticmethod
+    def _parse_recipients(value: str | None) -> list[str]:
+        """
+        将收件人字符串解析为列表，支持分隔符：逗号、分号、空格、换行；会去重并去除空白。
+        示例："a@x.com, b@x.com; c@x.com  d@x.com" -> ["a@x.com","b@x.com","c@x.com","d@x.com"]
+        """
+        if not value:
+            return []
+        parts = [p.strip() for p in re.split(r"[\s,;]+", value) if p and p.strip()]
+        # 去重并保持顺序
+        return list(dict.fromkeys(parts))
 
     def send(self, subject: str, body: str) -> bool:
         # 在方法入口处再次检查，确保类型安全
-        if not all([self.smtp_server, self.smtp_user, self.smtp_password, self.recipient_email]):
+        if not all([self.smtp_server, self.smtp_user, self.smtp_password]) or not self.recipient_emails:
             logging.error("邮件发送前检查失败：配置不完整。")
             return False
 
@@ -35,19 +50,21 @@ class EmailNotifier(NotificationChannel):
         assert self.smtp_server is not None
         assert self.smtp_user is not None  
         assert self.smtp_password is not None
-        assert self.recipient_email is not None
-        
-        logging.info(f"正在通过邮件向 {self.recipient_email} 发送告警...主题: {subject}")
+        assert isinstance(self.recipient_emails, list) and len(self.recipient_emails) > 0
+
+        to_header = ", ".join(self.recipient_emails)
+        logging.info(f"正在通过邮件向 {to_header} 发送告警...主题: {subject}")
         msg = MIMEText(body, 'plain', 'utf-8')
         msg['From'] = self.smtp_user
-        msg['To'] = self.recipient_email
+        msg['To'] = to_header
         msg['Subject'] = subject
 
         try:
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
+                # 显式传入收件人列表，确保所有人都能收到
+                server.send_message(msg, to_addrs=self.recipient_emails)
                 logging.info("邮件告警发送成功！")
                 return True
         except Exception as e:
@@ -66,10 +83,15 @@ class NotificationManager:
     """管理通知的发送逻辑和渠道。"""
     def __init__(self):
         self.channels = []
-        # 如果配置了邮件，则启用邮件通知
-        if all(os.getenv(k) for k in ["EMAIL_SMTP_SERVER", "EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD", "EMAIL_RECIPIENT"]):
-            logging.info("检测到邮件配置，已启用邮件通知渠道。")
-            self.channels.append(EmailNotifier())
+        # 如果配置了邮件，则启用邮件通知（兼容 EMAIL_RECIPIENTS/EMAIL_RECIPIENT）
+        has_basic = all(os.getenv(k) for k in ["EMAIL_SMTP_SERVER", "EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD"])
+        has_recipients = bool(os.getenv("EMAIL_RECIPIENTS") or os.getenv("EMAIL_RECIPIENT"))
+        if has_basic and has_recipients:
+            try:
+                self.channels.append(EmailNotifier())
+                logging.info("检测到邮件配置，已启用邮件通知渠道。")
+            except Exception as e:
+                logging.warning(f"初始化邮件通知渠道失败，将回退到仅日志通知。原因：{e}")
         else:
             logging.info("未检测到完整的邮件配置，将仅使用日志进行通知。")
         
