@@ -252,46 +252,68 @@ class ScutChargeMonitor:
                 }
                 try:
                     response = self.session.post(self.LOGIN_URL, data=payload)
-                    response.raise_for_status()
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"网络请求发生严重错误: {e}")
+                    continue
 
-                    # 先检查响应是否为有效JSON
+                response_data = None
+                parse_error = None
+                if response.content:
                     try:
                         response_data = response.json()
                     except json.JSONDecodeError as e:
-                        logging.error(f"登录响应不是有效的JSON格式: {response.text[:200]}...，错误原因：{e}")
+                        parse_error = e
+
+                if response.status_code == 200:
+                    if not isinstance(response_data, dict) or 'access_token' not in response_data:
+                        snippet = response.text[:200]
+                        logging.error(f"登录响应不是有效的JSON格式: {snippet}...，错误原因：{parse_error or '缺少 access_token 字段'}")
                         continue
 
-                    if response.status_code == 200 and 'access_token' in response_data:
-                        self.login_data = response_data
-                        self.token = self.login_data['access_token']
-                        self.jsessionid = self.session.cookies.get('JSESSIONID')
-                        token_preview = self.token[:8] + "..." if isinstance(self.token, str) and len(self.token) >= 8 else str(self.token)
-                        logging.info(f"登录成功！Token: {token_preview}")
-                        # 登录成功后，执行认证重定向以获取用电查询所需的JSESSIONID
-                        if self._perform_auth_redirect():
-                            return True
-                        else:
-                            logging.error("获取JSESSIONID的认证重定向失败。")
-                            return False
-                    elif response.status_code == 400:
-                        # 处理业务错误（已经确认是JSON格式）
-                        error_code = response_data.get('code')
-                        error_message = response_data.get('message', '未知错误')
+                    self.login_data = response_data
+                    self.token = self.login_data['access_token']
+                    self.jsessionid = self.session.cookies.get('JSESSIONID')
+                    token_preview = self.token[:8] + "..." if isinstance(self.token, str) and len(self.token) >= 8 else str(self.token)
+                    logging.info(f"登录成功！Token: {token_preview}")
+                    # 登录成功后，执行认证重定向以获取用电查询所需的JSESSIONID
+                    if self._perform_auth_redirect():
+                        return True
+                    logging.error("获取JSESSIONID的认证重定向失败。")
+                    return False
 
-                        if error_code == 8002:
-                            logging.warning(f"候选 '{captcha_code}' 验证失败: {error_message}。继续尝试下一个...")
-                            continue
-                        elif error_code == 8000:
-                            logging.error(f"登录失败: {error_message}。请检查用户名和密码，中止尝试。")
-                            return False
-                        else:
-                            logging.error(f"登录请求失败，业务错误码: {error_code}，错误信息: {error_message}")
-                            continue
-                    else:
-                        logging.error(f"登录请求发生未知HTTP错误，状态码: {response.status_code}, 响应: {response.text[:200]}...")
+                # 处理非 200 状态码
+                context = f"验证码候选 '{captcha_code}' (第 {i+1}/{len(captcha_candidates)})"
+                message = None
+                error_code = None
+                if isinstance(response_data, dict):
+                    message = response_data.get('message')
+                    error_code = response_data.get('code')
+
+                if response.status_code == 400:
+                    if error_code == 8002:
+                        desc = message or "验证码有误"
+                        logging.warning(f"{context} 验证失败：{desc}。继续尝试下一个候选。")
                         continue
-                except requests.exceptions.RequestException as e:
-                    logging.error(f"网络请求发生严重错误: {e}")
+                    if error_code == 8000:
+                        desc = message or "用户名或密码错误"
+                        logging.error(f"{context} 登录失败：{desc}。已确认账号/密码不匹配，后续不再重试。")
+                        return False
+                    friendly = message or "未知的业务错误"
+                    logging.error(f"{context} 登录请求返回 400：{friendly} (code={error_code})。")
+                    continue
+
+                if response.status_code == 401:
+                    friendly = message or "未通过身份验证（可能缺少关键字段或凭证）"
+                    logging.error(f"{context} 登录请求被拒绝：{friendly} (HTTP 401)。")
+                    continue
+
+                if parse_error:
+                    snippet = response.text[:200]
+                    logging.error(f"{context} 登录响应无法解析为JSON (HTTP {response.status_code})：{snippet}...，错误原因：{parse_error}")
+                else:
+                    snippet = response.text[:200]
+                    logging.error(f"{context} 登录请求发生未知HTTP错误，状态码: {response.status_code}, 响应: {snippet}...")
+                continue
 
             logging.warning("本轮所有验证码候选均已尝试失败，将进入下一轮重试（若仍有剩余次数）。")
 

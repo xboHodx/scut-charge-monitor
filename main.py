@@ -24,7 +24,8 @@ def main():
         "password": os.environ.get("SCUT_PASSWORD"),
         "llm_model": os.environ.get("LLM_MODEL"),
         "llm_api_key": os.environ.get("LLM_API_KEY"),
-        "llm_api_base": os.environ.get("LLM_API_BASE")
+        "llm_api_base": os.environ.get("LLM_API_BASE"),
+        "llm_recognition_retries": int(os.environ.get("LLM_RECOGNITION_RETRIES", "1") or "1")
     }
     if not all(login_config.get(k) for k in ["username", "password", "llm_model", "llm_api_key"]):
         logging.error("登录配置不完整，请检查 .env 文件。")
