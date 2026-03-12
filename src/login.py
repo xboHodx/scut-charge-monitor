@@ -6,7 +6,6 @@ import os
 import logging
 from io import BytesIO
 from PIL import Image
-from litellm import completion
 from dotenv import load_dotenv
 
 # --- 日志配置 ---
@@ -119,6 +118,8 @@ class ScutChargeMonitor:
         logging.info("正在调用LLM识别验证码（将重试3次）...")
         response_text = ""  # 初始化以修复linter警告
         try:
+            from litellm import completion
+
             img_str = base64.b64encode(base64.b64decode(captcha_image_base64)).decode('utf-8')
             prompt_text = (
                 "分析这张验证码图片。验证码由英文字母和数字构成。请返回一个包含3个最可能结果的JSON数组，按可能性从高到低排序。"
